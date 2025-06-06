@@ -31,8 +31,8 @@ class BitQuant:
         self.account_proxies = {}
         self.tokens = {}
         self.id_tokens = {}
-        self.min_delay = {}
-        self.max_delay = {}
+        self.min_delay = 0
+        self.max_delay = 0
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -235,7 +235,7 @@ class BitQuant:
 
         while True:
             try:
-                min_delay = int(f"{Fore.WHITE + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}").strip()
+                min_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}")).strip()
 
                 if min_delay >= 0:
                     self.min_delay = min_delay
@@ -247,7 +247,7 @@ class BitQuant:
 
         while True:
             try:
-                max_delay = int(f"{Fore.WHITE + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}").strip()
+                max_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}")).strip()
 
                 if max_delay >= 0:
                     self.max_delay = max_delay
