@@ -235,7 +235,7 @@ class BitQuant:
 
         while True:
             try:
-                min_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}")).strip()
+                min_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}").strip())
 
                 if min_delay >= 0:
                     self.min_delay = min_delay
@@ -247,7 +247,7 @@ class BitQuant:
 
         while True:
             try:
-                max_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}")).strip()
+                max_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}").strip())
 
                 if max_delay >= 0:
                     self.max_delay = max_delay
