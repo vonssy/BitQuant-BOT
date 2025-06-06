@@ -31,6 +31,8 @@ class BitQuant:
         self.account_proxies = {}
         self.tokens = {}
         self.id_tokens = {}
+        self.min_delay = {}
+        self.max_delay = {}
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -77,18 +79,18 @@ class BitQuant:
         try:
             if use_proxy_choice == 1:
                 async with ClientSession(timeout=ClientTimeout(total=30)) as session:
-                    async with session.get("https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt") as response:
+                    async with session.get("https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text") as response:
                         response.raise_for_status()
                         content = await response.text()
                         with open(filename, 'w') as f:
                             f.write(content)
-                        self.proxies = content.splitlines()
+                        self.proxies = [line.strip() for line in content.splitlines() if line.strip()]
             else:
                 if not os.path.exists(filename):
                     self.log(f"{Fore.RED + Style.BRIGHT}File {filename} Not Found.{Style.RESET_ALL}")
                     return
                 with open(filename, 'r') as f:
-                    self.proxies = f.read().splitlines()
+                    self.proxies = [line.strip() for line in f.read().splitlines() if line.strip()]
             
             if not self.proxies:
                 self.log(f"{Fore.RED + Style.BRIGHT}No Proxies Found.{Style.RESET_ALL}")
@@ -126,10 +128,6 @@ class BitQuant:
         self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
         return proxy
 
-    def mask_account(self, account):
-        mask_account = account[:6] + '*' * 6 + account[-6:]
-        return mask_account    
-
     def generate_address(self, account: str):
         try:
             decode_account = b58decode(account)
@@ -162,6 +160,13 @@ class BitQuant:
             
             return payload
         except Exception as e:
+            raise Exception(f"Generate Req Payload Failed {str(e)}")
+        
+    def mask_account(self, account):
+        try:
+            mask_account = account[:6] + '*' * 6 + account[-6:]
+            return mask_account
+        except Exception as e:
             return None
 
     def generate_agent_payload(self, address: str, question: str):
@@ -169,31 +174,22 @@ class BitQuant:
             payload = {
                 "context":{
                     "conversationHistory": [
-                        {
-                            "type":"user",
-                            "message":question
-                        },
-                        {
-                            "type":"user",
-                            "message":question
-                        }
+                        { "type":"user", "message":question },
+                        { "type":"user", "message":question }
                     ],
                     "address":address,
                     "poolPositions":[],
                     "availablePools":[]
                 },
-                "message":{
-                    "type":"user",
-                    "message":question
-                }
+                "message":{ "type":"user", "message":question }
             }
 
             return payload
         except Exception as e:
             return None
         
-    async def print_timer(self, min_delay: int, max_delay: int):
-        for remaining in range(random.randint(min_delay, max_delay), 0, -1):
+    async def print_timer(self):
+        for remaining in range(random.randint(self.min_delay, self.max_delay), 0, -1):
             print(
                 f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
                 f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
@@ -208,18 +204,18 @@ class BitQuant:
     def print_question(self):
         while True:
             try:
-                print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Monosans Proxy{Style.RESET_ALL}")
+                print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Proxyscrape Free Proxy{Style.RESET_ALL}")
                 print(f"{Fore.WHITE + Style.BRIGHT}2. Run With Private Proxy{Style.RESET_ALL}")
                 print(f"{Fore.WHITE + Style.BRIGHT}3. Run Without Proxy{Style.RESET_ALL}")
                 choose = int(input(f"{Fore.BLUE + Style.BRIGHT}Choose [1/2/3] -> {Style.RESET_ALL}").strip())
 
                 if choose in [1, 2, 3]:
                     proxy_type = (
-                        "Run With Monosans Proxy" if choose == 1 else 
-                        "Run With Private Proxy" if choose == 2 else 
-                        "Run Without Proxy"
+                        "With Proxyscrape Free" if choose == 1 else 
+                        "With Private" if choose == 2 else 
+                        "Without"
                     )
-                    print(f"{Fore.GREEN + Style.BRIGHT}{proxy_type} Selected.{Style.RESET_ALL}")
+                    print(f"{Fore.GREEN + Style.BRIGHT}Run {proxy_type} Proxy Selected.{Style.RESET_ALL}")
                     break
                 else:
                     print(f"{Fore.RED + Style.BRIGHT}Please enter either 1, 2 or 3.{Style.RESET_ALL}")
@@ -237,18 +233,32 @@ class BitQuant:
                 else:
                     print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter 'y' or 'n'.{Style.RESET_ALL}")
 
+        while True:
+            try:
+                min_delay = int(f"{Fore.WHITE + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}").strip()
+
+                if min_delay >= 0:
+                    self.min_delay = min_delay
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Min Delay Must >= 0.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
+
+        while True:
+            try:
+                max_delay = int(f"{Fore.WHITE + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}").strip()
+
+                if max_delay >= 0:
+                    self.max_delay = max_delay
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Max Delay Must >= Min Delay.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
+
         return choose, rotate
     
-    async def check_connection(self, proxy=None):
-        connector = ProxyConnector.from_url(proxy) if proxy else None
-        try:
-            async with ClientSession(connector=connector, timeout=ClientTimeout(total=30)) as session:
-                async with session.get(url="https://www.bitquant.io", headers={}) as response:
-                    response.raise_for_status()
-                    return True
-        except (Exception, ClientResponseError) as e:
-            return None
-        
     async def user_login(self, account: str, address: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/verify/solana"
         data = json.dumps(self.generate_payload(account, address))
@@ -262,14 +272,19 @@ class BitQuant:
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data) as response:
+                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                return self.log(
+                    f"{Fore.CYAN+Style.BRIGHT}Error  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} Login Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
         
     async def secure_token(self, address: str, proxy=None, retries=5):
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=AIzaSyBDdwO2O_Ose7LICa-A78qKJUCEE3nAwsM"
@@ -284,14 +299,19 @@ class BitQuant:
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data) as response:
+                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                return self.log(
+                    f"{Fore.CYAN+Style.BRIGHT}Error  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} GET Id Token Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
             
     async def user_stats(self, address: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/activity/stats?address={address}"
@@ -304,14 +324,19 @@ class BitQuant:
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.get(url=url, headers=headers) as response:
+                    async with session.get(url=url, headers=headers, ssl=False) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                return self.log(
+                    f"{Fore.CYAN+Style.BRIGHT}Error  :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} GET Activity Stats Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
             
     async def run_agent(self, address: str, question: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/agent/run"
@@ -327,188 +352,121 @@ class BitQuant:
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data) as response:
+                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
-    
-    async def process_check_connection(self, address: str, use_proxy: bool, rotate_proxy: bool):
-        message = "Checking Connection, Wait..."
-        if use_proxy:
-            message = "Checking Proxy Connection, Wait..."
-
-        print(
-            f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
-            f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
-            f"{Fore.YELLOW + Style.BRIGHT}{message}{Style.RESET_ALL}",
-            end="\r",
-            flush=True
-        )
-
-        proxy = self.get_next_proxy_for_account(address) if use_proxy else None
-
-        if rotate_proxy:
-            is_valid = None
-            while is_valid is None:
-                is_valid = await self.check_connection(proxy)
-                if not is_valid:
-                    self.log(
-                        f"{Fore.CYAN+Style.BRIGHT}Proxy  :{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
-                        f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                        f"{Fore.RED+Style.BRIGHT} Not 200 OK, {Style.RESET_ALL}"
-                        f"{Fore.YELLOW+Style.BRIGHT}Rotating Proxy...{Style.RESET_ALL}"
-                    )
-                    proxy = self.rotate_proxy_for_account(address) if use_proxy else None
-                    await asyncio.sleep(5)
-                    continue
-
-                self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Proxy  :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
+                return self.log(
+                    f"{Fore.CYAN + Style.BRIGHT}    Status    :{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Interaction Failed {Style.RESET_ALL}"
                     f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.GREEN+Style.BRIGHT} 200 OK {Style.RESET_ALL}                  "
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
                 )
+            
+    async def process_user_login(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
+        while True:
+            proxy = self.get_next_proxy_for_account(address) if use_proxy else None
+            self.log(
+                f"{Fore.CYAN+Style.BRIGHT}Proxy   :{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
+            )
 
+            login = await self.user_login(account, address, proxy)
+            if login:
+                self.tokens[address] = login["token"]
                 return True
 
-        is_valid = await self.check_connection(proxy)
-        if not is_valid:
-            self.log(
-                f"{Fore.CYAN+Style.BRIGHT}Proxy  :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
-                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} Not 200 OK {Style.RESET_ALL}          "
-            )
+            if rotate_proxy:
+                proxy = self.rotate_proxy_for_account(address)
+                await asyncio.sleep(5)
+                continue
+
             return False
         
-        self.log(
-            f"{Fore.CYAN+Style.BRIGHT}Proxy  :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
-            f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} 200 OK {Style.RESET_ALL}                  "
-        )
-
-        return True
-        
-    async def process_user_login(self, account: str, address: str, use_proxy: bool):
-        proxy = self.get_next_proxy_for_account(address) if use_proxy else None
-
-        token = await self.user_login(account, address, proxy)
-        if not token:
-            self.log(
-                f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} Login Failed {Style.RESET_ALL}"
-                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                f"{Fore.YELLOW+Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
-            )
-            return False
-
-        self.tokens[address] = token["token"]
-        return True
-        
-    async def process_secure_token(self, account: str, address: str, use_proxy: bool):
-        logined = await self.process_user_login(account, address, use_proxy)
+    async def process_secure_token(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
+        logined = await self.process_user_login(account, address, use_proxy, rotate_proxy)
         if logined:
             proxy = self.get_next_proxy_for_account(address) if use_proxy else None
 
             id_token = await self.secure_token(address, proxy)
-            if not id_token:
-                self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} GET Id Token Failed {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.YELLOW+Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
-                )
-                return False
+            if id_token:
+                self.id_tokens[address] = id_token["idToken"]
 
-            self.id_tokens[address] = id_token["idToken"]
-            return True
-
-    async def process_accounts(self, account: str, address: str, questions: list, use_proxy: bool, rotate_proxy: bool):
-        is_valid = await self.process_check_connection(address, use_proxy, rotate_proxy)
-        if is_valid:
-            secured = await self.process_secure_token(account, address, use_proxy)
-            if secured:
-                proxy = self.get_next_proxy_for_account(address) if use_proxy else None
                 self.log(
                     f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
                     f"{Fore.GREEN+Style.BRIGHT} Login Success {Style.RESET_ALL}"
                 )
+                return True
+            
+            return False
 
-                stats = await self.user_stats(address, proxy)
-                if not stats:
-                    self.log(
-                        f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
-                        f"{Fore.RED+Style.BRIGHT} GET Activity Stats Failed {Style.RESET_ALL}"
-                        f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                        f"{Fore.YELLOW+Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
-                    )
-                    return
+    async def process_accounts(self, account: str, address: str, questions: list, use_proxy: bool, rotate_proxy: bool):
+        secured = await self.process_secure_token(account, address, use_proxy, rotate_proxy)
+        if secured:
+            proxy = self.get_next_proxy_for_account(address) if use_proxy else None
 
-                points = stats.get("points", 0)
-                message_count = stats.get("message_count", 0)
-                
+            stats = await self.user_stats(address, proxy)
+            if not stats:
+                return
+
+            points = stats.get("points", 0)
+            message_count = stats.get("message_count", 0)
+            
+            self.log(
+                f"{Fore.CYAN+Style.BRIGHT}Balance:{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {points} PTS {Style.RESET_ALL}"
+            )
+            self.log(
+                f"{Fore.CYAN+Style.BRIGHT}Message:{Style.RESET_ALL}"
+                f"{Fore.WHITE+Style.BRIGHT} {message_count} {Style.RESET_ALL}"
+            )
+
+            daily_message_count = stats.get("daily_message_count", 0)
+            daily_message_limit = stats.get("daily_message_limit", 0)
+
+            if daily_message_count >= daily_message_limit:
                 self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Balance:{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {points} PTS {Style.RESET_ALL}"
+                    f"{Fore.CYAN+Style.BRIGHT}Agents :{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} Daily Interactions Reached {Style.RESET_ALL}"
                 )
+                return
+
+            used_questions = set()
+
+            while daily_message_count < daily_message_limit:
                 self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Message:{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {message_count} {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}  ● {Style.RESET_ALL}"
+                    f"{Fore.BLUE + Style.BRIGHT}Interactions{Style.RESET_ALL}"
+                    f"{Fore.WHITE + Style.BRIGHT} {daily_message_count + 1} of {daily_message_limit} {Style.RESET_ALL}                       "
                 )
 
-                daily_message_count = stats.get("daily_message_count", 0)
-                daily_message_limit = stats.get("daily_message_limit", 0)
+                available_questions = [question for question in questions if question not in used_questions]
 
-                if daily_message_count < daily_message_limit:
+                question = random.choice(available_questions)
 
-                    used_questions = set()
+                self.log(
+                    f"{Fore.CYAN + Style.BRIGHT}    Question  : {Style.RESET_ALL}"
+                    f"{Fore.WHITE + Style.BRIGHT}{question}{Style.RESET_ALL}"
+                )
 
-                    while daily_message_count < daily_message_limit:
-                        self.log(
-                            f"{Fore.MAGENTA + Style.BRIGHT}  ● {Style.RESET_ALL}"
-                            f"{Fore.BLUE + Style.BRIGHT}Interactions{Style.RESET_ALL}"
-                            f"{Fore.WHITE + Style.BRIGHT} {daily_message_count + 1} of {daily_message_limit} {Style.RESET_ALL}                       "
-                        )
+                run = await self.run_agent(address, question, proxy)
+                if run:
+                    answer = run.get("message", "Unknown")
+                    used_questions.add(question)
+                    daily_message_count += 1
 
-                        available_questions = [question for question in questions if question not in used_questions]
-
-                        question = random.choice(available_questions)
-
-                        self.log(
-                            f"{Fore.CYAN + Style.BRIGHT}    Question  : {Style.RESET_ALL}"
-                            f"{Fore.WHITE + Style.BRIGHT}{question}{Style.RESET_ALL}"
-                        )
-
-                        run = await self.run_agent(address, question, proxy)
-                        if run:
-                            answer = run.get("message", "Unknown")
-                            used_questions.add(question)
-                            daily_message_count += 1
-
-                            self.log(
-                                f"{Fore.CYAN + Style.BRIGHT}    Answer    : {Style.RESET_ALL}"
-                                f"{Fore.WHITE + Style.BRIGHT}{answer}{Style.RESET_ALL}"
-                            )
-                        else:
-                            self.log(
-                                f"{Fore.CYAN + Style.BRIGHT}    Status    : {Style.RESET_ALL}"
-                                f"{Fore.RED + Style.BRIGHT}Interaction Failed{Style.RESET_ALL}"
-                            )
-
-                        await self.print_timer(5, 10)
-
-                else:
                     self.log(
-                        f"{Fore.CYAN+Style.BRIGHT}Agents :{Style.RESET_ALL}"
-                        f"{Fore.YELLOW+Style.BRIGHT} Daily Interactions Reached {Style.RESET_ALL}"
+                        f"{Fore.CYAN + Style.BRIGHT}    Status    :{Style.RESET_ALL}"
+                        f"{Fore.GREEN + Style.BRIGHT} Interaction Success {Style.RESET_ALL}"
                     )
-
+                    self.log(
+                        f"{Fore.CYAN + Style.BRIGHT}    Answer    : {Style.RESET_ALL}"
+                        f"{Fore.WHITE + Style.BRIGHT}{answer}{Style.RESET_ALL}"
+                    )
+                    
     async def main(self):
         try:
             with open('accounts.txt', 'r') as file:
@@ -545,6 +503,14 @@ class BitQuant:
                             f"{Fore.WHITE + Style.BRIGHT} {self.mask_account(address)} {Style.RESET_ALL}"
                             f"{Fore.CYAN + Style.BRIGHT}]{separator}{Style.RESET_ALL}"
                         )
+
+                        if not address:
+                            self.log(
+                                f"{Fore.CYAN + Style.BRIGHT}Status  :{Style.RESET_ALL}"
+                                f"{Fore.RED + Style.BRIGHT} Invalid Private Key {Style.RESET_ALL}"
+                            )
+                            continue
+
                         await self.process_accounts(account, address, questions, use_proxy, rotate_proxy)
                         await asyncio.sleep(3)
 

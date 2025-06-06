@@ -2,17 +2,12 @@
 BitQuant BOT
 
 - Register Here : [BitQuant](https://www.bitquant.io/?invite=vpoERZLnOZUdbA)
-- Use Code `fyAMa5P87PwXAw`
-- Use Code `oRA35jvoX6Zuug`
-- Use Code `MChDe-P_IVxfhQ`
-- Use Code `pNhxAGGfKLNktQ`
-- Use Code `jCjph8xCpTDogw`
 - Sign With New SOL Wallet
 
 ## Features
 
   - Auto Get Account Information
-  - Auto Run With [Monosans](https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt) Proxy - `Choose 1`
+  - Auto Run With [Proxyscrape Free Proxy](https://proxyscrape.com/free-proxy-list) - `Choose 1`
   - Auto Run With Private Proxy - `Choose 2`
   - Auto Run Without Proxy - `Choose 3`
   - Auto Rotate Invalid Proxies - `y` or `n`
@@ -42,8 +37,8 @@ BitQuant BOT
 
 - **accounts.txt:** You will find the file `accounts.txt` inside the project directory. Make sure `accounts.txt` contains data that matches the format expected by the script. Here are examples of file formats:
   ```bash
-    your_solana_private_key_1
-    your_solana_private_key_2
+    your_solana_private_key_1 (base58)
+    your_solana_private_key_2 (base58)
   ```
 
 - **proxy.txt:** You will find the file `proxy.txt` inside the project directory. Make sure `proxy.txt` contains data that matches the format expected by the script. Here are examples of file formats:
