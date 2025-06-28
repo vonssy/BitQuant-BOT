@@ -26,6 +26,9 @@ class BitQuant:
             "User-Agent": FakeUserAgent().random
         }
         self.BASE_API = "https://quant-api.opengradient.ai/api"
+        self.PAGE_URL = "https://www.bitquant.io/"
+        self.SITE_KEY = "0x4AAAAAABRnkPBT6yl0YKs1"
+        self.CAPTCHA_KEY = None
         self.proxies = []
         self.proxy_index = 0
         self.account_proxies = {}
@@ -58,6 +61,15 @@ class BitQuant:
         hours, remainder = divmod(seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
+    
+    def load_2captcha_key(self):
+        try:
+            with open("2captcha_key.txt", 'r') as file:
+                captcha_key = file.read().strip()
+
+            return captcha_key
+        except Exception as e:
+            return None
     
     def load_question_lists(self):
         filename = "question_lists.json"
@@ -169,7 +181,7 @@ class BitQuant:
         except Exception as e:
             return None
 
-    def generate_agent_payload(self, address: str, question: str):
+    def generate_agent_payload(self, address: str, turnstile_token: str, question: str):
         try:
             payload = {
                 "context":{
@@ -181,7 +193,8 @@ class BitQuant:
                     "poolPositions":[],
                     "availablePools":[]
                 },
-                "message":{ "type":"user", "message":question }
+                "message":{ "type":"user", "message":question },
+                "captchaToken":turnstile_token
             }
 
             return payload
@@ -202,6 +215,30 @@ class BitQuant:
             await asyncio.sleep(1)
         
     def print_question(self):
+        while True:
+            try:
+                min_delay = int(input(f"{Fore.YELLOW + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}").strip())
+
+                if min_delay >= 0:
+                    self.min_delay = min_delay
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Min Delay Must >= 0.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
+
+        while True:
+            try:
+                max_delay = int(input(f"{Fore.YELLOW + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}").strip())
+
+                if max_delay >= 0:
+                    self.max_delay = max_delay
+                    break
+                else:
+                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Max Delay Must >= Min Delay.{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
+
         while True:
             try:
                 print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Proxyscrape Free Proxy{Style.RESET_ALL}")
@@ -233,31 +270,59 @@ class BitQuant:
                 else:
                     print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter 'y' or 'n'.{Style.RESET_ALL}")
 
-        while True:
-            try:
-                min_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}").strip())
-
-                if min_delay >= 0:
-                    self.min_delay = min_delay
-                    break
-                else:
-                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Min Delay Must >= 0.{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
-
-        while True:
-            try:
-                max_delay = int(input(f"{Fore.WHITE + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}").strip())
-
-                if max_delay >= 0:
-                    self.max_delay = max_delay
-                    break
-                else:
-                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Max Delay Must >= Min Delay.{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
-
         return choose, rotate
+    
+    async def solve_cf_turnstile(self, proxy=None, retries=5):
+        for attempt in range(retries):
+            connector = ProxyConnector.from_url(proxy) if proxy else None
+            try:
+                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
+
+                    if self.CAPTCHA_KEY is None:
+                        return None
+                    
+                    url = f"http://2captcha.com/in.php?key={self.CAPTCHA_KEY}&method=turnstile&sitekey={self.SITE_KEY}&pageurl={self.PAGE_URL}"
+                    async with session.get(url=url) as response:
+                        response.raise_for_status()
+                        result = await response.text()
+
+                        if 'OK|' not in result:
+                            await asyncio.sleep(5)
+                            continue
+
+                        request_id = result.split('|')[1]
+
+                        self.log(
+                            f"{Fore.MAGENTA+Style.BRIGHT}  ● {Style.RESET_ALL}"
+                            f"{Fore.BLUE+Style.BRIGHT}Req Id  :{Style.RESET_ALL}"
+                            f"{Fore.WHITE + Style.BRIGHT} {request_id} {Style.RESET_ALL}"
+                        )
+
+                        for _ in range(30):
+                            res_url = f"http://2captcha.com/res.php?key={self.CAPTCHA_KEY}&action=get&id={request_id}"
+                            async with session.get(url=res_url) as res_response:
+                                res_response.raise_for_status()
+                                res_result = await res_response.text()
+
+                                if 'OK|' in res_result:
+                                    turnstile_token = res_result.split('|')[1]
+                                    return turnstile_token
+                                elif res_result == "CAPCHA_NOT_READY":
+                                    self.log(
+                                        f"{Fore.MAGENTA+Style.BRIGHT}  ● {Style.RESET_ALL}"
+                                        f"{Fore.BLUE+Style.BRIGHT}Message :{Style.RESET_ALL}"
+                                        f"{Fore.YELLOW + Style.BRIGHT} Captcha Not Ready {Style.RESET_ALL}"
+                                    )
+                                    await asyncio.sleep(5)
+                                    continue
+                                else:
+                                    break
+
+            except Exception as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(5)
+                    continue
+                return None
     
     async def user_login(self, account: str, address: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/verify/solana"
@@ -344,9 +409,9 @@ class BitQuant:
 
         return None
             
-    async def run_agent(self, address: str, question: str, proxy=None, retries=5):
-        url = f"{self.BASE_API}/agent/run"
-        data = json.dumps(self.generate_agent_payload(address, question))
+    async def run_agent(self, address: str, turnstile_token: str, question: str, proxy=None, retries=5):
+        url = f"{self.BASE_API}/v2/agent/run"
+        data = json.dumps(self.generate_agent_payload(address, turnstile_token, question))
         headers = {
             **self.HEADERS,
             "Authorization": f"Bearer {self.id_tokens[address]}",
@@ -441,6 +506,27 @@ class BitQuant:
                     f"{Fore.YELLOW+Style.BRIGHT} Daily Interactions Reached {Style.RESET_ALL}"
                 )
                 return
+            
+            self.log(f"{Fore.CYAN+Style.BRIGHT}Captcha:{Style.RESET_ALL}")
+            self.log(
+                f"{Fore.MAGENTA+Style.BRIGHT}  ● {Style.RESET_ALL}"
+                f"{Fore.YELLOW + Style.BRIGHT}Solving Captcha Turnstile{Style.RESET_ALL}"
+            )
+            
+            turnstile_token = await self.solve_cf_turnstile(proxy)
+            if not turnstile_token:
+                self.log(
+                    f"{Fore.MAGENTA+Style.BRIGHT}  ● {Style.RESET_ALL}"
+                    f"{Fore.BLUE+Style.BRIGHT}Status  :{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Captcha Turnstile Not Solved {Style.RESET_ALL}"
+                )
+                return
+            
+            self.log(
+                f"{Fore.MAGENTA+Style.BRIGHT}  ● {Style.RESET_ALL}"
+                f"{Fore.BLUE+Style.BRIGHT}Status  :{Style.RESET_ALL}"
+                f"{Fore.GREEN + Style.BRIGHT} Captcha Turnstile Solved Successfully {Style.RESET_ALL}"
+            )
 
             used_questions = set()
 
@@ -460,11 +546,9 @@ class BitQuant:
                     f"{Fore.WHITE + Style.BRIGHT}{question}{Style.RESET_ALL}"
                 )
 
-                run = await self.run_agent(address, question, proxy)
+                run = await self.run_agent(address, turnstile_token, question, proxy)
                 if run:
                     answer = run.get("message", "Unknown")
-                    used_questions.add(question)
-                    daily_message_count += 1
 
                     self.log(
                         f"{Fore.CYAN + Style.BRIGHT}    Status    :{Style.RESET_ALL}"
@@ -474,11 +558,19 @@ class BitQuant:
                         f"{Fore.CYAN + Style.BRIGHT}    Answer    : {Style.RESET_ALL}"
                         f"{Fore.WHITE + Style.BRIGHT}{answer}{Style.RESET_ALL}"
                     )
+
+                used_questions.add(question)
+                daily_message_count += 1
+                self.print_timer()
                     
     async def main(self):
         try:
             with open('accounts.txt', 'r') as file:
                 accounts = [line.strip() for line in file if line.strip()]
+
+            capctha_key = self.load_2captcha_key()
+            if capctha_key:
+                self.CAPTCHA_KEY = capctha_key
             
             use_proxy_choice, rotate_proxy = self.print_question()
 

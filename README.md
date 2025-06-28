@@ -17,6 +17,7 @@ BitQuant BOT
 ## Requiremnets
 
 - Make sure you have Python3.9 or higher installed and pip.
+- 2captcha key
 
 ## Instalation
 
@@ -39,6 +40,11 @@ BitQuant BOT
   ```bash
     your_solana_private_key_1 (base58)
     your_solana_private_key_2 (base58)
+  ```
+
+- **2capctha_key.txt:** You will find the file `2capctha_key.txt` inside the project directory. Make sure `2capctha_key.txt` contains data that matches the format expected by the script. Here are examples of file formats:
+  ```bash
+    your_2captcha_key
   ```
 
 - **proxy.txt:** You will find the file `proxy.txt` inside the project directory. Make sure `proxy.txt` contains data that matches the format expected by the script. Here are examples of file formats:
