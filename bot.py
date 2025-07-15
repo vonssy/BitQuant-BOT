@@ -1,7 +1,8 @@
 from aiohttp import (
     ClientResponseError,
     ClientSession,
-    ClientTimeout
+    ClientTimeout,
+    BasicAuth
 )
 from aiohttp_socks import ProxyConnector
 from fake_useragent import FakeUserAgent
@@ -9,7 +10,7 @@ from base58 import b58decode, b58encode
 from nacl.signing import SigningKey
 from datetime import datetime, timezone
 from colorama import *
-import asyncio, random, json, os, pytz
+import asyncio, random, json, re, os, pytz
 
 wib = pytz.timezone('Asia/Jakarta')
 
@@ -32,10 +33,8 @@ class BitQuant:
         self.proxies = []
         self.proxy_index = 0
         self.account_proxies = {}
-        self.tokens = {}
+        self.access_tokens = {}
         self.id_tokens = {}
-        self.min_delay = 0
-        self.max_delay = 0
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -50,7 +49,7 @@ class BitQuant:
     def welcome(self):
         print(
             f"""
-        {Fore.GREEN + Style.BRIGHT}Auto Chat {Fore.BLUE + Style.BRIGHT}BitQuant - BOT
+        {Fore.GREEN + Style.BRIGHT}BitQuant {Fore.BLUE + Style.BRIGHT}Auto BOT
             """
             f"""
         {Fore.GREEN + Style.BRIGHT}Rey? {Fore.YELLOW + Style.BRIGHT}<INI WATERMARK>
@@ -91,7 +90,7 @@ class BitQuant:
         try:
             if use_proxy_choice == 1:
                 async with ClientSession(timeout=ClientTimeout(total=30)) as session:
-                    async with session.get("https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text") as response:
+                    async with session.get("https://raw.githubusercontent.com/monosans/proxy-list/refs/heads/main/proxies/http.txt") as response:
                         response.raise_for_status()
                         content = await response.text()
                         with open(filename, 'w') as f:
@@ -123,22 +122,42 @@ class BitQuant:
             return proxies
         return f"http://{proxies}"
 
-    def get_next_proxy_for_account(self, token):
-        if token not in self.account_proxies:
+    def get_next_proxy_for_account(self, account):
+        if account not in self.account_proxies:
             if not self.proxies:
                 return None
             proxy = self.check_proxy_schemes(self.proxies[self.proxy_index])
-            self.account_proxies[token] = proxy
+            self.account_proxies[account] = proxy
             self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
-        return self.account_proxies[token]
+        return self.account_proxies[account]
 
-    def rotate_proxy_for_account(self, token):
+    def rotate_proxy_for_account(self, account):
         if not self.proxies:
             return None
         proxy = self.check_proxy_schemes(self.proxies[self.proxy_index])
-        self.account_proxies[token] = proxy
+        self.account_proxies[account] = proxy
         self.proxy_index = (self.proxy_index + 1) % len(self.proxies)
         return proxy
+    
+    def build_proxy_config(self, proxy=None):
+        if not proxy:
+            return None, None, None
+
+        if proxy.startswith("socks"):
+            connector = ProxyConnector.from_url(proxy)
+            return connector, None, None
+
+        elif proxy.startswith("http"):
+            match = re.match(r"http://(.*?):(.*?)@(.*)", proxy)
+            if match:
+                username, password, host_port = match.groups()
+                clean_url = f"http://{host_port}"
+                auth = BasicAuth(username, password)
+                return None, clean_url, auth
+            else:
+                return None, proxy, None
+
+        raise Exception("Unsupported Proxy Type.")
 
     def generate_address(self, account: str):
         try:
@@ -202,7 +221,7 @@ class BitQuant:
             return None
         
     async def print_timer(self):
-        for remaining in range(random.randint(self.min_delay, self.max_delay), 0, -1):
+        for remaining in range(random.randint(5, 10), 0, -1):
             print(
                 f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
                 f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
@@ -215,30 +234,6 @@ class BitQuant:
             await asyncio.sleep(1)
         
     def print_question(self):
-        while True:
-            try:
-                min_delay = int(input(f"{Fore.YELLOW + Style.BRIGHT}Min Delay Each Interactions -> {Style.RESET_ALL}").strip())
-
-                if min_delay >= 0:
-                    self.min_delay = min_delay
-                    break
-                else:
-                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Min Delay Must >= 0.{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
-
-        while True:
-            try:
-                max_delay = int(input(f"{Fore.YELLOW + Style.BRIGHT}Max Delay Each Interactions -> {Style.RESET_ALL}").strip())
-
-                if max_delay >= 0:
-                    self.max_delay = max_delay
-                    break
-                else:
-                    print(f"{Fore.RED + Style.BRIGHT}Invalid input. Max Delay Must >= Min Delay.{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number.{Style.RESET_ALL}")
-
         while True:
             try:
                 print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Proxyscrape Free Proxy{Style.RESET_ALL}")
@@ -272,9 +267,26 @@ class BitQuant:
 
         return choose, rotate
     
-    async def solve_cf_turnstile(self, proxy=None, retries=5):
+    async def check_connection(self, proxy_url=None):
+        connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+        try:
+            async with ClientSession(connector=connector, timeout=ClientTimeout(total=30)) as session:
+                async with session.get(url="https://api.ipify.org?format=json", proxy=proxy, proxy_auth=proxy_auth) as response:
+                    response.raise_for_status()
+                    return True
+        except (Exception, ClientResponseError) as e:
+            self.log(
+                f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
+                f"{Fore.RED+Style.BRIGHT} Connection Not 200 OK {Style.RESET_ALL}"
+                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+            )
+        
+        return None
+    
+    async def solve_cf_turnstile(self, proxy_url=None, retries=5):
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
 
@@ -282,7 +294,7 @@ class BitQuant:
                         return None
                     
                     url = f"http://2captcha.com/in.php?key={self.CAPTCHA_KEY}&method=turnstile&sitekey={self.SITE_KEY}&pageurl={self.PAGE_URL}"
-                    async with session.get(url=url) as response:
+                    async with session.get(url=url, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         result = await response.text()
 
@@ -300,7 +312,7 @@ class BitQuant:
 
                         for _ in range(30):
                             res_url = f"http://2captcha.com/res.php?key={self.CAPTCHA_KEY}&action=get&id={request_id}"
-                            async with session.get(url=res_url) as res_response:
+                            async with session.get(url=res_url, proxy=proxy, proxy_auth=proxy_auth) as res_response:
                                 res_response.raise_for_status()
                                 res_result = await res_response.text()
 
@@ -324,7 +336,7 @@ class BitQuant:
                     continue
                 return None
     
-    async def user_login(self, account: str, address: str, proxy=None, retries=5):
+    async def user_login(self, account: str, address: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/verify/solana"
         data = json.dumps(self.generate_payload(account, address))
         headers = {
@@ -334,10 +346,10 @@ class BitQuant:
         }
         await asyncio.sleep(3)
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
+                    async with session.post(url=url, headers=headers, data=data, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -345,7 +357,7 @@ class BitQuant:
                     await asyncio.sleep(5)
                     continue
                 self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Error  :{Style.RESET_ALL}"
+                    f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
                     f"{Fore.RED+Style.BRIGHT} Login Failed {Style.RESET_ALL}"
                     f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
@@ -353,9 +365,9 @@ class BitQuant:
 
         return None
         
-    async def secure_token(self, address: str, proxy=None, retries=5):
+    async def secure_token(self, address: str, proxy_url=None, retries=5):
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=AIzaSyBDdwO2O_Ose7LICa-A78qKJUCEE3nAwsM"
-        data = json.dumps({"token":self.tokens[address], "returnSecureToken":True})
+        data = json.dumps({"token":self.access_tokens[address], "returnSecureToken":True})
         headers = {
             **self.HEADERS,
             "Content-Length": str(len(data)),
@@ -363,10 +375,10 @@ class BitQuant:
         }
         await asyncio.sleep(3)
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
+                    async with session.post(url=url, headers=headers, data=data, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -374,15 +386,15 @@ class BitQuant:
                     await asyncio.sleep(5)
                     continue
                 self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Error  :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} GET Id Token Failed {Style.RESET_ALL}"
+                    f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} Fetch Id Token Failed {Style.RESET_ALL}"
                     f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
                 )
 
         return None
             
-    async def user_stats(self, address: str, proxy=None, retries=5):
+    async def user_stats(self, address: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/activity/stats?address={address}"
         headers = {
             **self.HEADERS,
@@ -390,10 +402,10 @@ class BitQuant:
         }
         await asyncio.sleep(3)
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.get(url=url, headers=headers, ssl=False) as response:
+                    async with session.get(url=url, headers=headers, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -401,15 +413,15 @@ class BitQuant:
                     await asyncio.sleep(5)
                     continue
                 self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Error  :{Style.RESET_ALL}"
-                    f"{Fore.RED+Style.BRIGHT} GET Activity Stats Failed {Style.RESET_ALL}"
+                    f"{Fore.CYAN+Style.BRIGHT}Status :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} Fetch Activity Stats Failed {Style.RESET_ALL}"
                     f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
                     f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
                 )
 
         return None
             
-    async def run_agent(self, address: str, turnstile_token: str, question: str, proxy=None, retries=5):
+    async def run_agent(self, address: str, turnstile_token: str, question: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/v2/agent/run"
         data = json.dumps(self.generate_agent_payload(address, turnstile_token, question))
         headers = {
@@ -420,10 +432,10 @@ class BitQuant:
         }
         await asyncio.sleep(3)
         for attempt in range(retries):
-            connector = ProxyConnector.from_url(proxy) if proxy else None
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
+                    async with session.post(url=url, headers=headers, data=data, proxy=proxy, proxy_auth=proxy_auth) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -438,8 +450,8 @@ class BitQuant:
                 )
 
         return None
-            
-    async def process_user_login(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
+    
+    async def process_check_connection(self, address: str, use_proxy: bool, rotate_proxy: bool):
         while True:
             proxy = self.get_next_proxy_for_account(address) if use_proxy else None
             self.log(
@@ -447,16 +459,25 @@ class BitQuant:
                 f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
             )
 
-            login = await self.user_login(account, address, proxy)
-            if login:
-                self.tokens[address] = login["token"]
-                return True
+            is_valid = await self.check_connection(proxy)
+            if not is_valid:
+                if rotate_proxy:
+                    proxy = self.rotate_proxy_for_account(address)
 
-            if rotate_proxy:
-                proxy = self.rotate_proxy_for_account(address)
-                await asyncio.sleep(5)
                 continue
 
+            return True
+            
+    async def process_user_login(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
+        is_valid = await self.process_check_connection(address, use_proxy, rotate_proxy)
+        if is_valid:
+            proxy = self.get_next_proxy_for_account(address) if use_proxy else None
+
+            login = await self.user_login(account, address, proxy)
+            if login:
+                self.access_tokens[address] = login["token"]
+                return True
+            
             return False
         
     async def process_secure_token(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
@@ -561,7 +582,8 @@ class BitQuant:
 
                 used_questions.add(question)
                 daily_message_count += 1
-                self.print_timer()
+
+                await self.print_timer()
                     
     async def main(self):
         try:
