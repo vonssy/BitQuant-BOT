@@ -16,20 +16,11 @@ wib = pytz.timezone('Asia/Jakarta')
 
 class BitQuant:
     def __init__(self) -> None:
-        self.HEADERS = {
-            "Accept": "*/*",
-            "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Origin": "https://www.bitquant.io",
-            "Referer": "https://www.bitquant.io/",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "cross-site",
-            "User-Agent": FakeUserAgent().random
-        }
         self.BASE_API = "https://quant-api.opengradient.ai/api"
         self.PAGE_URL = "https://www.bitquant.io/"
         self.SITE_KEY = "0x4AAAAAABRnkPBT6yl0YKs1"
         self.CAPTCHA_KEY = None
+        self.HEADERS = {}
         self.proxies = []
         self.proxy_index = 0
         self.account_proxies = {}
@@ -85,23 +76,14 @@ class BitQuant:
         except json.JSONDecodeError:
             return []
     
-    async def load_proxies(self, use_proxy_choice: int):
+    async def load_proxies(self):
         filename = "proxy.txt"
         try:
-            if use_proxy_choice == 1:
-                async with ClientSession(timeout=ClientTimeout(total=30)) as session:
-                    async with session.get("https://raw.githubusercontent.com/monosans/proxy-list/refs/heads/main/proxies/http.txt") as response:
-                        response.raise_for_status()
-                        content = await response.text()
-                        with open(filename, 'w') as f:
-                            f.write(content)
-                        self.proxies = [line.strip() for line in content.splitlines() if line.strip()]
-            else:
-                if not os.path.exists(filename):
-                    self.log(f"{Fore.RED + Style.BRIGHT}File {filename} Not Found.{Style.RESET_ALL}")
-                    return
-                with open(filename, 'r') as f:
-                    self.proxies = [line.strip() for line in f.read().splitlines() if line.strip()]
+            if not os.path.exists(filename):
+                self.log(f"{Fore.RED + Style.BRIGHT}File {filename} Not Found.{Style.RESET_ALL}")
+                return
+            with open(filename, 'r') as f:
+                self.proxies = [line.strip() for line in f.read().splitlines() if line.strip()]
             
             if not self.proxies:
                 self.log(f"{Fore.RED + Style.BRIGHT}No Proxies Found.{Style.RESET_ALL}")
@@ -239,12 +221,12 @@ class BitQuant:
                 print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Proxyscrape Free Proxy{Style.RESET_ALL}")
                 print(f"{Fore.WHITE + Style.BRIGHT}2. Run With Private Proxy{Style.RESET_ALL}")
                 print(f"{Fore.WHITE + Style.BRIGHT}3. Run Without Proxy{Style.RESET_ALL}")
-                choose = int(input(f"{Fore.BLUE + Style.BRIGHT}Choose [1/2/3] -> {Style.RESET_ALL}").strip())
+                proxy_choice = int(input(f"{Fore.BLUE + Style.BRIGHT}Choose [1/2/3] -> {Style.RESET_ALL}").strip())
 
-                if choose in [1, 2, 3]:
+                if proxy_choice in [1, 2, 3]:
                     proxy_type = (
-                        "With Proxyscrape Free" if choose == 1 else 
-                        "With Private" if choose == 2 else 
+                        "With Proxyscrape Free" if proxy_choice == 1 else 
+                        "With Private" if proxy_choice == 2 else 
                         "Without"
                     )
                     print(f"{Fore.GREEN + Style.BRIGHT}Run {proxy_type} Proxy Selected.{Style.RESET_ALL}")
@@ -254,18 +236,18 @@ class BitQuant:
             except ValueError:
                 print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter a number (1, 2 or 3).{Style.RESET_ALL}")
 
-        rotate = False
-        if choose in [1, 2]:
+        rotate_proxy = False
+        if proxy_choice in [1, 2]:
             while True:
-                rotate = input(f"{Fore.BLUE + Style.BRIGHT}Rotate Invalid Proxy? [y/n] -> {Style.RESET_ALL}").strip()
+                rotate_proxy = input(f"{Fore.BLUE + Style.BRIGHT}Rotate Invalid Proxy? [y/n] -> {Style.RESET_ALL}").strip()
 
-                if rotate in ["y", "n"]:
-                    rotate = rotate == "y"
+                if rotate_proxy in ["y", "n"]:
+                    rotate_proxy = rotate_proxy == "y"
                     break
                 else:
                     print(f"{Fore.RED + Style.BRIGHT}Invalid input. Enter 'y' or 'n'.{Style.RESET_ALL}")
 
-        return choose, rotate
+        return proxy_choice, rotate_proxy
     
     async def check_connection(self, proxy_url=None):
         connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
@@ -284,17 +266,16 @@ class BitQuant:
         
         return None
     
-    async def solve_cf_turnstile(self, proxy_url=None, retries=5):
+    async def solve_cf_turnstile(self, retries=5):
         for attempt in range(retries):
-            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
             try:
-                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
+                async with ClientSession(timeout=ClientTimeout(total=60)) as session:
 
                     if self.CAPTCHA_KEY is None:
                         return None
                     
                     url = f"http://2captcha.com/in.php?key={self.CAPTCHA_KEY}&method=turnstile&sitekey={self.SITE_KEY}&pageurl={self.PAGE_URL}"
-                    async with session.get(url=url, proxy=proxy, proxy_auth=proxy_auth) as response:
+                    async with session.get(url=url) as response:
                         response.raise_for_status()
                         result = await response.text()
 
@@ -312,7 +293,7 @@ class BitQuant:
 
                         for _ in range(30):
                             res_url = f"http://2captcha.com/res.php?key={self.CAPTCHA_KEY}&action=get&id={request_id}"
-                            async with session.get(url=res_url, proxy=proxy, proxy_auth=proxy_auth) as res_response:
+                            async with session.get(url=res_url) as res_response:
                                 res_response.raise_for_status()
                                 res_result = await res_response.text()
 
@@ -340,7 +321,7 @@ class BitQuant:
         url = f"{self.BASE_API}/verify/solana"
         data = json.dumps(self.generate_payload(account, address))
         headers = {
-            **self.HEADERS,
+            **self.HEADERS[address],
             "Content-Length": str(len(data)),
             "Content-Type": "application/json"
         }
@@ -369,7 +350,7 @@ class BitQuant:
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=AIzaSyBDdwO2O_Ose7LICa-A78qKJUCEE3nAwsM"
         data = json.dumps({"token":self.access_tokens[address], "returnSecureToken":True})
         headers = {
-            **self.HEADERS,
+            **self.HEADERS[address],
             "Content-Length": str(len(data)),
             "Content-Type": "application/json"
         }
@@ -397,7 +378,7 @@ class BitQuant:
     async def user_stats(self, address: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/activity/stats?address={address}"
         headers = {
-            **self.HEADERS,
+            **self.HEADERS[address],
             "Authorization": f"Bearer {self.id_tokens[address]}"
         }
         await asyncio.sleep(3)
@@ -425,7 +406,7 @@ class BitQuant:
         url = f"{self.BASE_API}/v2/agent/run"
         data = json.dumps(self.generate_agent_payload(address, turnstile_token, question))
         headers = {
-            **self.HEADERS,
+            **self.HEADERS[address],
             "Authorization": f"Bearer {self.id_tokens[address]}",
             "Content-Length": str(len(data)),
             "Content-Type": "application/json"
@@ -534,7 +515,7 @@ class BitQuant:
                 f"{Fore.YELLOW + Style.BRIGHT}Solving Captcha Turnstile{Style.RESET_ALL}"
             )
             
-            turnstile_token = await self.solve_cf_turnstile(proxy)
+            turnstile_token = await self.solve_cf_turnstile()
             if not turnstile_token:
                 self.log(
                     f"{Fore.MAGENTA+Style.BRIGHT}  ● {Style.RESET_ALL}"
@@ -594,7 +575,7 @@ class BitQuant:
             if capctha_key:
                 self.CAPTCHA_KEY = capctha_key
             
-            use_proxy_choice, rotate_proxy = self.print_question()
+            proxy_choice, rotate_proxy = self.print_question()
 
             questions = self.load_question_lists()
             if not questions:
@@ -602,9 +583,7 @@ class BitQuant:
                 return
 
             while True:
-                use_proxy = False
-                if use_proxy_choice in [1, 2]:
-                    use_proxy = True
+                use_proxy = True if proxy_choice == 1 else False
 
                 self.clear_terminal()
                 self.welcome()
@@ -614,7 +593,7 @@ class BitQuant:
                 )
 
                 if use_proxy:
-                    await self.load_proxies(use_proxy_choice)
+                    await self.load_proxies()
                 
                 separator = "=" * 23
                 for account in accounts:
@@ -632,6 +611,17 @@ class BitQuant:
                                 f"{Fore.RED + Style.BRIGHT} Invalid Private Key or Library Version Not Supported {Style.RESET_ALL}"
                             )
                             continue
+
+                        self.HEADERS[address] = {
+                            "Accept": "*/*",
+                            "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+                            "Origin": "https://www.bitquant.io",
+                            "Referer": "https://www.bitquant.io/",
+                            "Sec-Fetch-Dest": "empty",
+                            "Sec-Fetch-Mode": "cors",
+                            "Sec-Fetch-Site": "cross-site",
+                            "User-Agent": FakeUserAgent().random
+                        }
 
                         await self.process_accounts(account, address, questions, use_proxy, rotate_proxy)
                         await asyncio.sleep(3)
